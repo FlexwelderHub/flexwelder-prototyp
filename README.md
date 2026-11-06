@@ -4,7 +4,7 @@ Klikalny, statyczny prototyp panelu ośrodka egzaminacyjnego. Można go przeklik
 
 **Wszystkie dane w prototypie są fikcyjne.**
 
-Adres strony: https://szymon-konieczny.github.io/flexwelder-prototyp/
+Adres strony: https://flexwelderhub.github.io/flexwelder-prototyp/
 
 ## Jak zaktualizować
 
