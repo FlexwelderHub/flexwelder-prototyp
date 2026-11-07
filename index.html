@@ -475,6 +475,7 @@ const app = document.getElementById('app');
 const vstyle = document.getElementById('vstyle');
 const miss = window.__demoMiss = [];
 let viewName = '', lastRoute = '';
+let pathHook = null;
 
 // ---------- pomocnicze ----------
 const mi = n => `<span class="material-icons">${n}</span>`;
@@ -593,6 +594,7 @@ function render() {
   save();
   if (r !== lastRoute) { window.scrollTo(0, 0); document.getElementById('vp').scrollLeft = 0; lastRoute = r; }
   highlight(); renderPanel();
+  if (pathHook) pathHook();
 }
 
 // ---------- akordeony i menu ----------
@@ -1477,7 +1479,9 @@ function SS(s) {
 function curStep(sc) { return sc.steps.findIndex(s => !s.done()); }
 
 // ---------- podświetlenie następnego kroku ----------
-function highlight() {
+function accBox(s) { return s.acc ? app.querySelector(`[data-accd="${s.acc}"]`) : null; }
+function highlight() { highlightPage(); syncGo(); }
+function highlightPage() {
   $$('.demo-hot').forEach(x => x.classList.remove('demo-hot'));
   if (!S.hints) return;
   const sc = SC[S.sc]; const i = curStep(sc); if (i < 0) return;
@@ -1489,10 +1493,24 @@ function highlight() {
   let el = null;
   if (tg.startsWith('ev:')) el = $$('.ev').find(e => e.textContent.includes(tg.slice(3)) && e.style.display !== 'none');
   else if (tg === 'flt') el = (S.draft && S.draft.length) ? $$('a,button').find(e => label(e) === 'Zastosuj') : $$('.dd li').find(li => li.querySelector('.m-check'));
-  else if (tg.startsWith('sel:')) el = app.querySelector(tg.slice(4));
+  else if (tg.startsWith('sel:')) el = (accBox(s) || app).querySelector(tg.slice(4));
   else if (tg.startsWith('row:')) { const r = rowOf(tg.slice(4)); el = r && r.querySelector('a.see-all'); }
-  else el = $$('a,button,.st,.ec-select').find(e => !e.closest('.sidebar') && label(e) === tg && !e.classList.contains('is-disabled'));
-  if (el) el.classList.add('demo-hot');
+  else el = $$('a,button,.st,.ec-select', accBox(s)).find(e => !e.closest('.sidebar') && label(e) === tg && !e.classList.contains('is-disabled'));
+  if (!el || !el.getClientRects().length) return;
+  el.classList.add('demo-hot');
+  const rc = el.getBoundingClientRect(); if (rc.top < 0 || rc.bottom > window.innerHeight) el.scrollIntoView({ block: 'center' });
+}
+
+// Gdy na ekranie nie ma ramki, prowadzi przycisk w panelu: tester zawsze widzi następny ruch.
+function nextPath() { for (let k = 1; k <= SC.length; k++) { const i = (S.sc + k) % SC.length; if (curStep(SC[i]) >= 0) return i; } return -1; }
+function syncGo() {
+  const sim = panel.querySelector('.dp-cur [data-sim]'); const goB = panel.querySelector('.dp-go');
+  [sim, goB].forEach(b => { if (b) b.classList.remove('demo-hot'); });
+  const sc = SC[S.sc]; const i = curStep(sc); if (i < 0) return;
+  const s = SS(sc.steps[i]); const here = s.v === viewName || resolve(s.v) === viewName;
+  if (goB) goB.textContent = here ? 'Pokaż ›' : 'Przejdź do kroku ›';
+  if (!S.hints || app.querySelector('.demo-hot')) return;
+  const b = sim && here ? sim : goB; if (b) b.classList.add('demo-hot');
 }
 
 // ---------- panel prezentacji ----------
@@ -1505,7 +1523,7 @@ function renderPanel() {
   const cnt = ci < 0 ? n + '/' + n : (ci + 1) + '/' + n;
   if (!S.panel) { panel.innerHTML = `<button type="button" class="dp-pill" data-min aria-label="Rozwiń panel prezentacji"><span class="dp-dot"></span>Prezentacja · ${cnt}</button>`; return; }
   const opts = SC.map((x, i) => `<option value="${i}"${i === S.sc ? ' selected' : ''}>${x.name}</option>`).join('');
-  const cur = ci < 0 ? (SC.every(x => curStep(x) < 0) ? `<p class="dp-fin">Wszystkie ścieżki ukończone. Dziękujemy! <button type="button" data-ffin>Pobierz raport</button></p>` : `<p class="dp-fin">Ścieżka ukończona. Dziękujemy! <button type="button" data-home>Wybierz kolejną</button></p>`)
+  const cur = ci < 0 ? (SC.every(x => curStep(x) < 0) ? `<p class="dp-fin">Wszystkie ścieżki ukończone. Dziękujemy! <button type="button" data-ffin>Pobierz raport</button></p>` : `<p class="dp-fin">Ścieżka ukończona. <button type="button" class="demo-hot" data-tp="${nextPath()}">Dalej: ${SC[nextPath()].name} ›</button></p>`)
     : (s => `<div class="dp-cur"><div class="dp-ct"><span class="dp-n">${ci + 1}</span>${s.t}</div><p>${s.h}</p>${s.sim ? `<button type="button" class="dp-sim" data-sim="${s.sim[0]}">${s.sim[1]}</button>` : ''}</div>`)(SS(sc.steps[ci]));
   const list = S.list ? `<ol class="dp-steps">${sc.steps.map((s, i) => `<li class="${s.done() ? 'd' : ''}${i === ci ? ' c' : ''}"><button type="button" data-step="${i}"><span class="dp-n">${s.done() ? '✓' : i + 1}</span><span class="dp-t">${SS(s).t}</span></button></li>`).join('')}</ol>
     <div class="dp-foot"><label><input type="checkbox" id="dp-hints" ${S.hints ? 'checked' : ''}> Podświetlaj krok</label><span class="dp-sp"></span>${sc.map ? `<a href="#${sc.map}">Mapa procesu</a>` : ''}<button type="button" data-reset>Reset danych</button></div>` : '';
@@ -1516,6 +1534,7 @@ function renderPanel() {
     ${cur}
     <div class="dp-nav">${ci > 0 ? `<button type="button" data-step="${ci - 1}">‹ Poprzedni</button>` : ''}<span class="dp-sp"></span><button type="button" data-list aria-expanded="${!!S.list}">${S.list ? 'Ukryj kroki' : 'Wszystkie kroki'}</button>${ci >= 0 ? `<button type="button" class="dp-go" data-step="${ci}">Pokaż ›</button>` : ''}</div>
     ${list}`;
+  syncGo();
 }
 panel.addEventListener('click', e => {
   const t = e.target;
@@ -1569,7 +1588,7 @@ function showIntro() {
     return `<li><div class="tp-i"><div class="tp-t">${i + 1}. ${esc(sc.name)}${p.d === p.n ? ' <span class="tp-ok" aria-label="ukończona">✓</span>' : ''}</div><div class="tp-d">${PDESC[sc.id] || ''}</div><div class="tp-bar" aria-hidden="true"><i style="width:${pc}%"></i></div></div><span class="tp-k">${p.d}/${p.n} kroków</span><button type="button" class="tbtn${p.d === p.n ? ' sec' : ''}" data-tp="${i}">${lbl}</button></li>`; }).join('');
   tov.innerHTML = `<div class="tbox" role="dialog" aria-modal="true" aria-labelledby="ts-h"><span class="tk">Test prototypu</span><h2 id="ts-h">Nowy panel ośrodka egzaminacyjnego FlexWelder</h2>
     <p>To klikalny prototyp. Dane są fikcyjne i nic nie trafia do prawdziwego systemu, więc możesz śmiało klikać i wpisywać.</p>
-    <ol class="ts-how"><li>Wybierz ścieżkę. Panel w lewym dolnym rogu podpowiada kolejny krok, a pomarańczowa ramka pokazuje, gdzie kliknąć.</li>
+    <ol class="ts-how"><li>Wybierz ścieżkę. Panel w lewym dolnym rogu podpowiada kolejny krok, a pomarańczowa ramka pokazuje, gdzie kliknąć. Po ukończeniu ścieżki przewodnik sam przeprowadzi Cię do następnej.</li>
     <li>Gdy coś jest niejasne, czegoś brakuje albo w praktyce robicie to inaczej, kliknij <b>„Zgłoś uwagę”</b> w prawym dolnym rogu. Uwaga zapisze się razem z nazwą ekranu.</li>
     <li>Na koniec kliknij <b>„Zakończ test i pobierz raport”</b>: dostaniesz plik Word z uwagami do odesłania e-mailem.</li></ol>
     <label class="ts-me">Imię i firma (opcjonalnie, dopiszemy do uwag)<input id="ts-who" value="${esc(N.who)}" placeholder="np. Jan, Stocznia"></label>
@@ -1737,6 +1756,27 @@ tov.addEventListener('click', e => {
   if (t.closest('[data-ffin]')) { showFinish(); return; }
 });
 panel.addEventListener('click', e => { if (e.target.closest('[data-ffin]')) showFinish(); });
+function showPathDone() {
+  const sc = SC[S.sc]; const ni = nextPath();
+  if (ni < 0) { showFinish(); return; }
+  const nx = SC[ni]; const left = SC.filter(x => curStep(x) >= 0).length;
+  tov.innerHTML = `<div class="tbox sm" role="dialog" aria-modal="true" aria-labelledby="pd-h"><span class="tk">Ścieżka ukończona ✓</span><h2 id="pd-h">${esc(sc.name)}</h2>
+    <p>Pozostałe ścieżki: <b>${left}</b>. Następna to <b>${ni + 1}. ${esc(nx.name)}</b>. ${PDESC[nx.id] || ''}</p>
+    <div class="ts-foot"><button type="button" class="tbtn sec" data-tfb>Zgłoś uwagę</button><span class="sp"></span><button type="button" class="tbtn sec" data-tclose>Zostań tutaj</button><button type="button" class="tbtn" data-tp="${ni}">Następna ścieżka ›</button></div></div>`;
+  tov.hidden = false; tov.querySelector('[data-tp]').focus();
+}
+let pathT = null;
+function whenFree(fn) { clearTimeout(pathT); pathT = setTimeout(() => { if (tov.hidden && modal.hidden) fn(); else whenFree(fn); }, 1200); }
+tov.addEventListener('click', e => { if (e.target.closest('[data-tfb]')) showFb(); });
+panel.addEventListener('click', e => { const b = e.target.closest('[data-tp]'); if (b) startPath(+b.dataset.tp); });
+S.fin = S.fin || {}; SC.forEach(x => { if (curStep(x) < 0) S.fin[x.id] = true; }); save();
+pathHook = () => {
+  const i = S.sc; const sc = SC[i]; S.fin = S.fin || {};
+  SC.forEach(x => { if (x !== sc && curStep(x) < 0) S.fin[x.id] = true; });
+  if (curStep(sc) >= 0 || S.fin[sc.id]) return;
+  S.fin[sc.id] = true; save();
+  whenFree(() => { if (S.sc === i) showPathDone(); });
+};
 updFb();
 if (!N.intro) showIntro();
 })();
